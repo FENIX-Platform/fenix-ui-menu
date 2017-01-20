@@ -1,13 +1,11 @@
-if (typeof define !== 'function') {
-    var define = require('amdefine')(module);
-}
-
 define([
     "jquery",
-    "require",
-    "amplify",
+    "../html/blank.hbs",
+    "../html/blank-fluid.hbs",
+    "../html/side.hbs",
+    "amplify-pubsub",
     "bootstrap"
-], function ($, Require) {
+], function ($, templateBlank, templateBlankFluid, templateSide, amplify) {
 
     'use strict';
 
@@ -24,7 +22,6 @@ define([
         },
         logo: true,
         lang: "EN",
-        css: 'fx-menu/css/fenix-menu.css',
         eventPrefix: 'fx.menu.'
     };
 
@@ -52,37 +49,31 @@ define([
 
         if (this.o.config) {
             self.o.conf = self.o.config;
-            self.render();
+            self.preloadTemplate();
         } else {
-
-            $.getJSON(Require.toUrl(this.o.url), function (data) {
-                self.o.conf = data;
-                self.preloadTemplate();
-            }).error(function () {
-                throw new Error('FENIX Menu: please specify a valid configuration file.');
-            });
+            console.log("`url` param is no longer supported. Pass directly the menu configuration with `config` param.")
         }
     };
 
     FM.prototype.preloadTemplate = function () {
 
-        var that = this,
-            url = this.o.template || defaultOptions.template;
-        if (typeof url === 'string') {
-            url = Require.toUrl(url);
-            $.ajax({
-                url: url,
-                success: function (html) {
-                    that.$template = $(html);
-                    that.render();
-                }
-            });
-        }
-        else{
-            this.$template = $(this.o.template);
-            that.render();
+        var template = this.o.template || defaultOptions.template;
+
+        switch (template.toLowerCase()) {
+            case "fluid" :
+                this.$template = templateBlankFluid();
+                break;
+            case "side" :
+                this.$template = templateSide();
+                break;
+            default :
+                this.$template = templateBlank();
+                break;
         }
 
+        this.$template = $(this.$template);
+
+        this.render();
 
     };
 
@@ -106,11 +97,6 @@ define([
         //Select an item
         this.selectCurrentItem();
 
-        //Auto import the CSS in the page
-        if (this.o.hasOwnProperty('importCss') && this.o.importCss === true) {
-            this.importCss();
-        }
-
         // Create breadcrumb
         if (this.o.hasOwnProperty('breadcrumb') && this.o.breadcrumb.active === true) {
             this.renderBreadcrumb();
@@ -128,7 +114,36 @@ define([
 
     };
 
+    /**
+     * pub/sub
+     * @return {Object} component instance
+     */
+    FM.prototype.on = function (channel, fn, context) {
+        var _context = context || this;
+        if (!this.channels[channel]) {
+            this.channels[channel] = [];
+        }
+        this.channels[channel].push({context: _context, callback: fn});
+        return this;
+    };
+
+    FM.prototype._trigger = function (channel) {
+
+        if (!this.channels[channel]) {
+            return false;
+        }
+        var args = Array.prototype.slice.call(arguments, 1);
+        for (var i = 0, l = this.channels[channel].length; i < l; i++) {
+            var subscription = this.channels[channel][i];
+            subscription.callback.apply(subscription.context, args);
+        }
+
+        return this;
+    };
+
     FM.prototype.initVariables = function () {
+
+        this.channels = {};
 
         this.$ul = this.$template.find(this.o.selectors.ul);
         this.$brand = this.$template.find(this.o.selectors.brand);
@@ -158,17 +173,6 @@ define([
             $(this.o.breadcrumb.container).empty();
         }
 
-    };
-
-    FM.prototype.importCss = function () {
-
-        if (this.o.css && this.o.css !== null) {
-            var link = document.createElement("link");
-            link.type = "text/css";
-            link.rel = "stylesheet";
-            link.href = Require.toUrl(this.o.css);
-            document.getElementsByTagName("head")[0].appendChild(link);
-        }
     };
 
     FM.prototype.compileTemplate = function () {
@@ -292,6 +296,8 @@ define([
             if (item.hasOwnProperty('attrs')) {
                 topic += item.attrs.id ? item.attrs.id : 'item';
             }
+
+            this._trigger("select", { id: item.attrs.id});
 
             amplify.publish(topic, item);
         }, this));
